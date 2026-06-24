@@ -10,17 +10,19 @@ export async function createCreatomateRender(
   media: MediaSelection
 ): Promise<{ render: CreatomateRender; templateMode: "template" | "renderscript" }> {
   const templateId = process.env.CREATOMATE_TEMPLATE_ID?.trim();
-  const canUseTemplate = templateId
-    ? await templateLooksMediaReady(templateId).catch(() => false)
-    : false;
 
-  const body =
-    canUseTemplate && templateId
-      ? buildTemplateRenderBody(templateId, plan, media)
-      : buildRenderScriptBody(plan, media);
+  if (templateId) {
+    const body = await buildTemplateRenderBody(templateId, plan, media);
+    if (body) return doCreateRender(body, "template");
+  }
 
-  const templateMode = canUseTemplate ? "template" : "renderscript";
+  return doCreateRender(buildRenderScriptBody(plan, media), "renderscript");
+}
 
+async function doCreateRender(
+  body: Record<string, unknown>,
+  templateMode: "template" | "renderscript"
+): Promise<{ render: CreatomateRender; templateMode: "template" | "renderscript" }> {
   const response = await fetch("https://api.creatomate.com/v2/renders", {
     method: "POST",
     headers: {
@@ -42,10 +44,7 @@ export async function createCreatomateRender(
     throw new Error("Creatomate did not return a render id");
   }
 
-  return {
-    render: render as CreatomateRender,
-    templateMode,
-  };
+  return { render: render as CreatomateRender, templateMode };
 }
 
 export async function getCreatomateRender(
@@ -72,72 +71,102 @@ export async function getCreatomateRender(
   return (await response.json()) as CreatomateRender;
 }
 
-async function templateLooksMediaReady(templateId: string): Promise<boolean> {
+async function buildTemplateRenderBody(
+  templateId: string,
+  plan: RenderPlan,
+  media: MediaSelection
+): Promise<Record<string, unknown> | null> {
   const response = await fetch(
     `https://api.creatomate.com/v2/templates/${templateId}`,
     {
       headers: {
         Authorization: `Bearer ${requiredEnv("CREATOMATE_API_KEY")}`,
       },
-      cache: "no-store",
     }
   );
 
-  if (!response.ok) return false;
+  if (!response.ok) return null;
 
   const template = await response.json();
-  const names = collectNames(template).map((name) => name.toLowerCase());
+  const source = template.source;
 
-  return (
-    names.some((name) => name.includes("background") || name.includes("video")) &&
-    names.some((name) => name.includes("sticker") || name.includes("gif")) &&
-    names.some((name) => name.includes("audio"))
-  );
+  if (!source?.elements) return null;
+
+  const named: { name: string; type: string }[] = [];
+  walkElements(source.elements, named);
+
+  if (named.length === 0) return null;
+
+  const texts = [plan.hook, ...plan.facts, plan.caption, plan.cta].filter(Boolean);
+  let textIdx = 0;
+  const modifications: Record<string, string> = {};
+
+  for (const el of named) {
+    const prop = el.type === "text" ? "text" : "source";
+    switch (el.type) {
+      case "text":
+        modifications[`${el.name}.${prop}`] = texts[textIdx % texts.length];
+        textIdx++;
+        break;
+      case "video":
+        modifications[`${el.name}.${prop}`] = media.backgroundVideos[0]?.url ?? "";
+        break;
+      case "image":
+        modifications[`${el.name}.${prop}`] = media.sticker.mp4Url || media.sticker.url;
+        break;
+      case "audio":
+        if (media.audioUrl) modifications[`${el.name}.${prop}`] = media.audioUrl;
+        break;
+    }
+  }
+
+  return { output_format: "mp4", template_id: templateId, modifications };
 }
 
-function buildTemplateRenderBody(
-  templateId: string,
-  plan: RenderPlan,
-  media: MediaSelection
-) {
-  return {
-    output_format: "mp4",
-    template_id: templateId,
-    modifications: {
-      "Intro-Text.text": plan.hook,
-      "Fact-1.text": plan.facts[0],
-      "Fact-2.text": plan.facts[1],
-      "Fact-3.text": plan.facts[2],
-      "Fact-4.text": plan.facts[3],
-      "Fact-5.text": plan.facts[4],
-      "Background.source": media.backgroundVideo.url,
-      "Background-Video.source": media.backgroundVideo.url,
-      "Sticker.source": media.sticker.url,
-      "GIF.source": media.sticker.url,
-      ...(media.audioUrl ? { "Audio.source": media.audioUrl } : {}),
-    },
-  };
+function walkElements(elements: unknown[], result: { name: string; type: string }[]): void {
+  for (const raw of elements) {
+    const el = raw as Record<string, unknown>;
+    if (typeof el.name === "string") {
+      result.push({ name: el.name, type: String(el.type ?? "") });
+    }
+    if (Array.isArray(el.elements)) walkElements(el.elements, result);
+  }
 }
 
 function buildRenderScriptBody(plan: RenderPlan, media: MediaSelection) {
   const preset = styleForPreset(plan.stylePreset);
+  const d = plan.durationSeconds;
+  const videoEls = media.backgroundVideos.map((v, i) => ({
+    type: "video",
+    track: 1,
+    time: i === 0 ? 0 : undefined,
+    source: v.url,
+    fit: "cover",
+    duration: d,
+    volume: "0%",
+    loop: true,
+    ...(i > 0
+      ? {
+          animations: [{
+            time: 0,
+            duration: 0.8,
+            transition: true,
+            type: "fade",
+            easing: "quadratic-out",
+            enable: "second-only",
+          }],
+        }
+      : {}),
+  }));
 
   return {
     output_format: "mp4",
     width: 1080,
     height: 1920,
-    duration: plan.durationSeconds,
+    duration: d,
     snapshot_time: 1,
     elements: [
-      {
-        type: "video",
-        track: 1,
-        time: 0,
-        source: media.backgroundVideo.url,
-        fit: "cover",
-        duration: plan.durationSeconds,
-        volume: "0%",
-      },
+      ...videoEls,
       ...(media.audioUrl
         ? [
             {
@@ -145,7 +174,7 @@ function buildRenderScriptBody(plan: RenderPlan, media: MediaSelection) {
               track: 2,
               time: 0,
               source: media.audioUrl,
-              duration: plan.durationSeconds,
+              duration: d,
               loop: true,
               volume: "65%",
               audio_fade_out: 0.8,
@@ -153,22 +182,28 @@ function buildRenderScriptBody(plan: RenderPlan, media: MediaSelection) {
           ]
         : []),
       {
-        type: media.sticker.mp4Url ? "video" : "image",
+        type: "video",
         track: 3,
         time: 0,
-        source: media.sticker.mp4Url || media.sticker.url,
+        source: media.sticker.url,
         x: preset.stickerX,
         y: preset.stickerY,
         width: preset.stickerWidth,
         height: preset.stickerHeight,
         fit: "contain",
-        duration: plan.durationSeconds,
+        duration: d,
         loop: true,
         volume: "0%",
         shadow_color: "rgba(0, 0, 0, 0.3)",
         shadow_blur: "14px",
         shadow_x: "0px",
         shadow_y: "6px",
+        animations: [{
+          time: 0,
+          duration: 0.5,
+          type: "fade",
+          easing: "quadratic-out",
+        }],
       },
       {
         type: "text",
@@ -187,7 +222,13 @@ function buildRenderScriptBody(plan: RenderPlan, media: MediaSelection) {
         stroke_width: "8px",
         x_alignment: "50%",
         y_alignment: "50%",
-        duration: plan.durationSeconds,
+        duration: d,
+        animations: [{
+          time: 0,
+          duration: 0.6,
+          type: "fade",
+          easing: "quadratic-out",
+        }],
       },
     ],
   };
@@ -259,12 +300,8 @@ function collectNames(value: unknown): string[] {
 function safeApiMessage(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "Unknown error";
 
-  const record = payload as {
-    message?: unknown;
-    error?: unknown;
-  };
-
-  const message = record.message || record.error;
+  const record = payload as Record<string, unknown>;
+  const message = record.message || record.error || record.hint;
 
   return typeof message === "string"
     ? message.replace(/sk-[a-zA-Z0-9_-]+/g, "[redacted]")

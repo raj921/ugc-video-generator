@@ -31,7 +31,15 @@ const TARGET_RATIO = 9 / 16;
 
 export async function getPexelsVideo(
   query: string
-): Promise<MediaSelection["backgroundVideo"]> {
+): Promise<MediaSelection["backgroundVideos"][number]> {
+  const result = await getPexelsVideos(query);
+  return result[0];
+}
+
+export async function getPexelsVideos(
+  query: string,
+  count = 3
+): Promise<MediaSelection["backgroundVideos"]> {
   const attempts = unique([
     query,
     "phone app vertical",
@@ -58,17 +66,17 @@ export async function getPexelsVideo(
     if (!response.ok) continue;
 
     const data = (await response.json()) as PexelsSearchResponse;
-    const selected = pickPexelsFile(data);
-
-    if (selected) return selected;
+    const picks = pickPexelsFiles(data, count);
+    if (picks.length > 0) return picks;
   }
 
   throw new Error("No Pexels background video found");
 }
 
-function pickPexelsFile(
-  data: PexelsSearchResponse
-): MediaSelection["backgroundVideo"] | null {
+function pickPexelsFiles(
+  data: PexelsSearchResponse,
+  count: number
+): MediaSelection["backgroundVideos"] {
   const videos = Array.isArray(data.videos) ? data.videos : [];
 
   const candidates: ScoredCandidate[] = videos.flatMap((video) =>
@@ -87,19 +95,26 @@ function pickPexelsFile(
       }))
   );
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return [];
 
   candidates.sort((a, b) => b.score - a.score);
 
-  const best = candidates[0];
+  const pool = Math.min(candidates.length, Math.max(count, 3));
+  const indices = shuffle(Array.from({ length: pool }, (_, i) => i));
 
-  return {
-    url: best.file.link,
-    width: best.file.width,
-    height: best.file.height,
-    pexelsUrl: best.video.url,
-    photographer: best.video.user?.name || "Pexels creator",
-  };
+  return indices.slice(0, Math.min(count, pool)).map((i) => ({
+    url: candidates[i].file.link,
+    width: candidates[i].file.width,
+    height: candidates[i].file.height,
+  }));
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
 
 function scoreCandidate(file: PexelsVideoFile, video: PexelsVideo): number {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { handleChatRequest, type ChatMessage } from "@/lib/ugc";
 
 export const runtime = "nodejs";
-// The whole pipeline (site fetch + Anthropic plan + Pexels/GIPHY + create render)
+// The whole pipeline (site fetch + OpenRouter plan + Pexels/GIPHY + create render)
 // runs synchronously here and can take ~20-30s. Vercel's default function limit is
 // 10s, which would time out, so raise it to the Hobby maximum.
 export const maxDuration = 60;
@@ -41,8 +41,9 @@ function isChatMessage(value: unknown): value is ChatMessage {
   return (item.role === "user" || item.role === "assistant") && typeof item.content === "string";
 }
 
-function cleanError(error: unknown) {
+function cleanError(error: unknown): string {
   const message = error instanceof Error ? error.message : "The render failed.";
+  // ponytail: surface the real error. Generic messages just hide what's broken.
   if (message.startsWith("Missing ")) return `${message}. Add it to .env.local or your deployment env.`;
-  return "I could not start the render. Check the API keys, public audio URL, and try again.";
+  return message;
 }

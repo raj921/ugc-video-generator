@@ -199,6 +199,7 @@ function toSticker(
 ): MediaSelection["sticker"] {
   return {
     url: item.images.original!.url,
+    webpUrl: item.images.original!.webp,
     mp4Url: item.images.original!.mp4,
     title: item.title || query,
     giphyUrl: item.url,

@@ -1,12 +1,16 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type {
-  AnthropicChatMessage,
   ChatMessage,
+  OpenRouterChatMessage,
   RenderPlan,
   SiteContext,
 } from "./types";
 
-const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
+const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+const DEFAULT_OPENROUTER_MODEL = "minimax/minimax-m3";
+// ponytail: minimax outputs ~3-5k chars for a plan, so 4000 tokens gives
+// headroom. With minimax the call takes ~10s — well under the 60s ceiling.
+// If moving to a slower model later, measure actual times before raising.
+const PLAN_MAX_TOKENS = 4000;
 
 const PLAN_SYSTEM_PROMPT = `You are a viral UGC comedy writer who has scripted 10,000+ short-form ads that collectively crossed a billion views. You think in memes, pop-culture references, and unexpected comedic contrasts. Your videos make people stop scrolling because the sticker choice is absurdly specific and the hook lands like a tweet — not a slogan.
 
@@ -110,27 +114,26 @@ Before outputting JSON, silently verify:
 
 Return ONLY the final JSON plan. No reasoning in the output.`;
 
-export async function buildAnthropicPlan(
+export async function buildOpenRouterPlan(
   message: string,
   site: SiteContext | null,
   history: ChatMessage[]
 ): Promise<{ usedAI: true; plan: RenderPlan } | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
 
   if (!apiKey) return null;
 
-  const anthropic = new Anthropic({ apiKey });
-
-  const response = await anthropic.messages.create({
-    model: process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL,
-    max_tokens: 1200,
+  const response = await openRouterChat(apiKey, {
+    model: process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL,
+    max_tokens: PLAN_MAX_TOKENS,
     temperature: 0.85,
-    system: PLAN_SYSTEM_PROMPT,
+    response_format: { type: "json_object" },
     messages: [
-      ...sanitizeAnthropicHistory(history),
+      { role: "system", content: PLAN_SYSTEM_PROMPT },
+      ...sanitizeOpenRouterHistory(history),
       {
         role: "user",
-        content: `First, in 2-3 sentences, identify the funniest unexpected angle for this product. What is the contradiction, the relatable pain, or the absurd gap? Which hook archetype fits best?\n\nThen output the final JSON plan matching this exact shape:\n${JSON.stringify({
+        content: `Silently identify the funniest unexpected angle for this product, then return ONLY a valid JSON object matching this exact shape:\n${JSON.stringify({
           productName: "string",
           category: "string",
           hook: "top meme caption under 95 chars",
@@ -146,14 +149,9 @@ export async function buildAnthropicPlan(
     ],
   });
 
-  const text = response.content
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .join("")
-    .trim();
-
   return {
     usedAI: true,
-    plan: JSON.parse(extractJson(text)) as RenderPlan,
+    plan: JSON.parse(extractJson(response)) as RenderPlan,
   };
 }
 
@@ -161,22 +159,23 @@ export async function buildConversationalReply(
   message: string,
   history: ChatMessage[]
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
 
   if (!apiKey) {
     return "I make short UGC videos. Send a product URL or a quick pitch and I’ll build one with background video, sticker, text, and audio.";
   }
 
-  const anthropic = new Anthropic({ apiKey });
-
-  const response = await anthropic.messages.create({
-    model: process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL,
+  const reply = await openRouterChat(apiKey, {
+    model: process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL,
     max_tokens: 300,
     temperature: 0.8,
-    system:
-      "You are the assistant in a UGC video maker chat app. Chat naturally and warmly. Handle greetings, small talk, jokes, and questions normally. Your one main capability: when the user sends a product URL or pitch, you assemble a short UGC marketing video with background video, trendy text, audio, and a GIF sticker. When it fits, invite them to send a product URL or pitch. Keep replies to 1-3 short sentences. Plain text only.",
     messages: [
-      ...sanitizeAnthropicHistory(history),
+      {
+        role: "system",
+        content:
+          "You are the assistant in a UGC video maker chat app. Chat naturally and warmly. Handle greetings, small talk, jokes, and questions normally. Your one main capability: when the user sends a product URL or pitch, you assemble a short UGC marketing video with background video, trendy text, audio, and a GIF sticker. When it fits, invite them to send a product URL or pitch. Keep replies to 1-3 short sentences. Plain text only.",
+      },
+      ...sanitizeOpenRouterHistory(history),
       {
         role: "user",
         content: message,
@@ -184,20 +183,15 @@ export async function buildConversationalReply(
     ],
   });
 
-  const reply = response.content
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .join("")
-    .trim();
-
   return (
     reply ||
     "I make short UGC videos. Send a product URL or a quick pitch and I’ll build one."
   );
 }
 
-export function sanitizeAnthropicHistory(
+export function sanitizeOpenRouterHistory(
   history: ChatMessage[]
-): AnthropicChatMessage[] {
+): OpenRouterChatMessage[] {
   const cleaned = history
     .slice(-8)
     .filter(
@@ -211,7 +205,7 @@ export function sanitizeAnthropicHistory(
       content: item.content.trim().slice(0, 1200),
     }));
 
-  const merged: AnthropicChatMessage[] = [];
+  const merged: OpenRouterChatMessage[] = [];
 
   for (const item of cleaned) {
     const last = merged[merged.length - 1];
@@ -224,6 +218,58 @@ export function sanitizeAnthropicHistory(
   }
 
   return merged;
+}
+
+type OpenRouterRequest = {
+  model: string;
+  max_tokens: number;
+  temperature: number;
+  response_format?: { type: "json_object" };
+  messages: Array<OpenRouterChatMessage | { role: "system"; content: string }>;
+};
+
+type OpenRouterResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
+};
+
+async function openRouterChat(
+  apiKey: string,
+  body: OpenRouterRequest
+): Promise<string> {
+  const response = await fetch(OPENROUTER_CHAT_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer":
+        process.env.PUBLIC_MEDIA_BASE_URL || "http://localhost:3000",
+      "X-Title": "Result UGC Studio",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as OpenRouterResponse;
+
+  if (!response.ok) {
+    throw new Error(
+      `OpenRouter failed: ${redactApiMessage(
+        payload.error?.message || response.statusText
+      )}`
+    );
+  }
+
+  return payload.choices?.[0]?.message?.content?.trim() || "";
+}
+
+function redactApiMessage(message: string): string {
+  return message.replace(/sk-or-v1-[a-zA-Z0-9_-]+/g, "[redacted]");
 }
 
 function extractJson(text: string): string {

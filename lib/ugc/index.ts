@@ -4,7 +4,7 @@ import {
   getCreatomateRender,
   resolveAudioUrl,
 } from "./creatomate";
-import { buildAnthropicPlan, buildConversationalReply } from "./anthropic";
+import { buildConversationalReply, buildOpenRouterPlan } from "./openrouter";
 import { fetchSiteContext } from "./site";
 import {
   buildFallbackPlan,
@@ -13,7 +13,7 @@ import {
   looksLikeProductBrief,
   normalizePlan,
 } from "./plan";
-import { getPexelsVideo } from "./pexels";
+import { getPexelsVideos } from "./pexels";
 import { getGiphySticker } from "./giphy";
 import type {
   ChatMessage,
@@ -73,8 +73,11 @@ export async function handleChatRequest(
   const site = url ? await fetchSiteContext(url) : null;
 
   const fallback = buildFallbackPlan(clean, site);
-  const aiResult = await buildAnthropicPlan(clean, site, history).catch(
-    () => null
+  const aiResult = await buildOpenRouterPlan(clean, site, history).catch(
+    (error) => {
+      console.error("OpenRouter plan failed, using fallback plan:", error);
+      return null;
+    }
   );
 
   const plan = normalizePlan(aiResult?.plan || fallback, fallback);
@@ -99,13 +102,13 @@ async function selectMedia(
   plan: RenderPlan,
   publicOrigin: string
 ): Promise<MediaSelection> {
-  const [backgroundVideo, sticker] = await Promise.all([
-    getPexelsVideo(plan.pexelsQuery),
+  const [backgroundVideos, sticker] = await Promise.all([
+    getPexelsVideos(plan.pexelsQuery, 3),
     getGiphySticker(plan.stickerQuery),
   ]);
 
   return {
-    backgroundVideo,
+    backgroundVideos,
     sticker,
     audioUrl: resolveAudioUrl(publicOrigin),
   };

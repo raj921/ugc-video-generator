@@ -41,13 +41,11 @@ type RenderPayload = {
     stylePreset?: "office-cutout" | "sky-face" | "cafe-reaction";
   };
   media: {
-    backgroundVideo: {
+    backgroundVideos: {
       url: string;
       width: number;
       height: number;
-      pexelsUrl: string;
-      photographer: string;
-    };
+    }[];
     sticker: {
       url: string;
       title: string;
@@ -326,10 +324,10 @@ export function UGCStudio() {
           <div className="border-t border-border/60 px-3 pb-3">
             <AIPrompt
               className="w-full py-0"
-              defaultModel="Claude Sonnet 4.6"
+              defaultModel="Kimi K2.6"
               headerAction="Render"
-              headerText="Pexels, GIPHY, Creatomate"
-              models={["Claude Sonnet 4.6"]}
+              headerText="OpenRouter, Pexels, GIPHY"
+              models={["Kimi K2.6"]}
               onSubmit={(value) => submitPrompt(value)}
               placeholder="Send a product URL or pitch"
             />
@@ -370,7 +368,7 @@ function EmptyState({ onUseExample }: { onUseExample: () => void }) {
 
 function PreviewPanel({ render }: { render: RenderPayload | null }) {
   const finalVideo = isSucceededRender(render) ? render.render.url : null;
-  const previewVideo = render?.media.backgroundVideo.url;
+  const previewVideo = render?.media.backgroundVideos[0]?.url;
   const status = render?.render.status;
 
   return (
@@ -471,11 +469,11 @@ function RecipePanel({ render }: { render: RenderPayload | null }) {
             <RecipeRow
               label="Pexels"
               value={render.plan.pexelsQuery}
-              href={render.media.backgroundVideo.pexelsUrl}
+              href={`https://pexels.com/search/${encodeURIComponent(render.plan.pexelsQuery)}`}
             />
             <RecipeRow
-              label="Creator"
-              value={render.media.backgroundVideo.photographer}
+              label="Clips"
+              value={`${render.media.backgroundVideos.length}`}
             />
             <CardDivider className="my-1" />
             <RecipeRow
@@ -490,7 +488,7 @@ function RecipePanel({ render }: { render: RenderPayload | null }) {
             />
             <RecipeRow
               label="AI"
-              value={render.usedAI ? "Anthropic" : "fallback plan"}
+              value={render.usedAI ? "OpenRouter" : "fallback plan"}
             />
           </>
         ) : (

@@ -13,8 +13,6 @@
 import { ArrowRight, Bot, Check, ChevronDown, Paperclip } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
-import Anthropic from "@/components/kokonutui/anthropic";
-import AnthropicDark from "@/components/kokonutui/anthropic-dark";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -69,16 +67,16 @@ interface AIPromptProps {
 }
 
 const DEFAULT_MODELS = [
+  "Kimi K2.6",
   "Gemini 3",
   "GPT-5-mini",
-  "Claude 4.5 Sonnet",
   "GPT-5-1 Mini",
   "GPT-5-1",
 ];
 
 export default function AI_Prompt({
   models = DEFAULT_MODELS,
-  defaultModel = "Claude 4.5 Sonnet",
+  defaultModel = "Kimi K2.6",
   placeholder = "What can I do for you?",
   headerText = "is free this weekend!",
   headerAction = "Ship Now!",
@@ -122,34 +120,6 @@ export default function AI_Prompt({
         />
       </svg>
     ),
-    "Claude 4.5 Sonnet": (
-      <div>
-        <svg
-          className="block dark:hidden"
-          fill="#000"
-          fillRule="evenodd"
-          style={{ flex: "none", lineHeight: "1" }}
-          viewBox="0 0 24 24"
-          width="1em"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <title>Anthropic Icon Light</title>
-          <path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-7.258 0h3.767L16.906 20h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm4.132 9.959L8.453 7.687 6.205 13.48H10.7z" />
-        </svg>
-        <svg
-          className="hidden dark:block"
-          fill="#ffff"
-          fillRule="evenodd"
-          style={{ flex: "none", lineHeight: "1" }}
-          viewBox="0 0 24 24"
-          width="1em"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <title>Anthropic Icon Dark</title>
-          <path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-7.258 0h3.767L16.906 20h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm4.132 9.959L8.453 7.687 6.205 13.48H10.7z" />
-        </svg>
-      </div>
-    ),
     "GPT-5-1 Mini": OPENAI_SVG,
     "GPT-5-1": OPENAI_SVG,
   };
@@ -174,8 +144,7 @@ export default function AI_Prompt({
       <div className="rounded-2xl bg-black/5 p-1.5 pt-4 dark:bg-white/5">
         <div className="mx-2 mb-2.5 flex items-center gap-2">
           <div className="flex flex-1 items-center gap-2">
-            <Anthropic className="h-3.5 w-3.5 text-black dark:hidden" />
-            <AnthropicDark className="hidden h-3.5 w-3.5 dark:block" />
+            <Bot className="h-3.5 w-3.5 text-black dark:text-white/90" />
             <h3 className="text-black text-xs tracking-tighter dark:text-white/90">
               {headerText}
             </h3>

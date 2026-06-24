@@ -17,15 +17,14 @@ export type RenderPlan = {
 };
 
 export type MediaSelection = {
-  backgroundVideo: {
+  backgroundVideos: {
     url: string;
     width: number;
     height: number;
-    pexelsUrl: string;
-    photographer: string;
-  };
+  }[];
   sticker: {
     url: string;
+    webpUrl?: string;
     mp4Url?: string;
     title: string;
     giphyUrl: string;
@@ -72,7 +71,7 @@ export type SiteContext = {
   error?: string;
 };
 
-export type AnthropicChatMessage = {
+export type OpenRouterChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
