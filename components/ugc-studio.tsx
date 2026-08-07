@@ -11,9 +11,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  ArrowUpRight,
+  Check,
+  Download,
   ExternalLink,
   Loader2,
+  Plus,
+  RefreshCw,
+  Sparkles,
 } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useMemo, useState } from "react";
 
 type Role = "user" | "assistant";
@@ -68,10 +75,7 @@ type RenderPayload = {
 
 type ApiResponse =
   | { type: "chat"; reply: string }
-  | ({
-      type: "render";
-      reply: string;
-    } & RenderPayload);
+  | ({ type: "render"; reply: string } & RenderPayload);
 
 type RenderStatusResponse = {
   id?: string;
@@ -84,16 +88,25 @@ type RenderStatusResponse = {
 
 const stages = [
   "understanding product",
-  "finding video",
-  "finding sticker",
-  "rendering",
+  "finding footage",
+  "adding reaction",
+  "exporting MP4",
+] as const;
+
+type Stage = (typeof stages)[number];
+
+const examplePrompts = [
+  "Make a playful ad for a calorie tracking app",
+  "Create a founder-style video for my SaaS",
+  "Turn my skincare brand into a testimonial",
 ];
 
 export function UGCStudio() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeStage, setActiveStage] = useState<string | null>(null);
+  const [activeStage, setActiveStage] = useState<Stage | null>(null);
   const [latestRender, setLatestRender] = useState<RenderPayload | null>(null);
+  const [lastPrompt, setLastPrompt] = useState("");
 
   const history = useMemo(
     () =>
@@ -115,6 +128,7 @@ export function UGCStudio() {
       content: clean,
     };
 
+    setLastPrompt(clean);
     setMessages((current) => [...current, userMessage]);
     setIsLoading(true);
     setActiveStage(stages[0]);
@@ -125,6 +139,7 @@ export function UGCStudio() {
         return stages[Math.min(index + 1, stages.length - 1)];
       });
     }, 1600);
+    let keepBusy = false;
 
     try {
       const response = await fetch("/api/chat", {
@@ -145,15 +160,16 @@ export function UGCStudio() {
 
       if (payload.type === "render") {
         const renderPayload = stripReply(payload);
+        keepBusy = true;
 
         setLatestRender(renderPayload);
-
+        setActiveStage("exporting MP4");
         setMessages((current) => [
           ...current,
           {
             id: assistantId,
             role: "assistant",
-            content: `${payload.reply}\n\nRendering now. I’ll drop the final MP4 here when it’s ready.`,
+            content: `${payload.reply}\n\nThe hook is ready. I’m assembling the final MP4 now.`,
             render: renderPayload,
           },
         ]);
@@ -181,14 +197,16 @@ export function UGCStudio() {
           role: "assistant",
           content:
             error instanceof Error
-              ? `I could not start the render: ${error.message}`
+              ? `I could not start the video: ${error.message}`
               : "I could not reach the render service. Check the API keys and try again.",
         },
       ]);
     } finally {
       window.clearInterval(stageTimer);
-      setIsLoading(false);
-      setActiveStage(null);
+      if (!keepBusy) {
+        setIsLoading(false);
+        setActiveStage(null);
+      }
     }
   }
 
@@ -225,14 +243,14 @@ export function UGCStudio() {
             };
 
             if (updatedRender.status === "succeeded" && updatedRender.url) {
-              updatedMessage.content = `Your video is ready: ${updatedRender.url}`;
+              updatedMessage.content = "Your video is ready to watch and download.";
             }
 
             if (updatedRender.status === "failed") {
               updatedMessage.content =
                 updatedRender.error_message ||
                 updatedRender.errorMessage ||
-                "The render failed. Try another product URL or a shorter prompt.";
+                "The render failed. Try the same brief again or use a shorter prompt.";
             }
 
             return updatedMessage;
@@ -243,99 +261,129 @@ export function UGCStudio() {
           updatedRender.status === "succeeded" ||
           updatedRender.status === "failed"
         ) {
+          setIsLoading(false);
+          setActiveStage(null);
           return;
         }
       } catch {
-        // Keep polling. Temporary network/render status failures are okay.
+        continue;
       }
     }
 
+    setLatestRender((current) => {
+      if (!current || current.renderId !== renderId) return current;
+      return { ...current, render: { ...current.render, status: "timeout" } };
+    });
     setMessages((current) =>
       current.map((message) =>
         message.id === messageId
           ? {
               ...message,
               content:
-                "The render is still processing. Check the preview panel or try opening the render again in a few seconds.",
+                "The render is taking longer than expected. Try again when you’re ready.",
             }
           : message
       )
     );
+    setIsLoading(false);
+    setActiveStage(null);
+  }
+
+  function createAnother() {
+    setMessages([]);
+    setLatestRender(null);
+    setLastPrompt("");
+    setIsLoading(false);
+    setActiveStage(null);
   }
 
   return (
-    <main className="min-h-[100dvh] bg-background text-foreground">
-      <div className="mx-auto grid min-h-[100dvh] w-full max-w-7xl gap-4 px-4 py-4 md:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.75fr)] lg:gap-5 lg:px-6">
-        <section className="flex min-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-xl shadow-black/10 backdrop-blur-sm">
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Result UGC Studio
-              </p>
-              <h1 className="mt-0.5 text-2xl font-semibold tracking-tight md:text-3xl">
-                Chat to video
-              </h1>
+    <main className="relative min-h-[100dvh] overflow-hidden bg-background text-foreground">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(155,229,100,0.14),transparent_28%),radial-gradient(circle_at_86%_18%,rgba(155,229,100,0.08),transparent_24%)]" />
+      <div className="relative mx-auto grid min-h-[100dvh] w-full max-w-[1440px] gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.72fr)] lg:gap-5 lg:px-8">
+        <section className="flex min-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-3xl border border-border/70 bg-card/75 shadow-2xl shadow-black/20 backdrop-blur-xl">
+          <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border/70 px-5 py-4 sm:px-7">
+            <div className="flex items-center gap-3">
+              <div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+                <Sparkles className="size-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold tracking-tight">Result</p>
+                <p className="text-xs text-muted-foreground">UGC Studio</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs text-primary">
+              <span className="size-1.5 rounded-full bg-primary" />
+              AI video beta
             </div>
           </header>
 
-          <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-5">
+          <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-6 sm:px-7 sm:py-8">
             {messages.length === 0 ? (
-              <EmptyState
-                onUseExample={() =>
-                  submitPrompt(
-                    "I'm building CalAI, a calorie-tracking app. Here's the site: calai.app"
-                  )
-                }
-              />
+              <EmptyState onUseExample={submitPrompt} />
             ) : (
-              messages.map((message) => (
-                <article
-                  className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
-                    message.role === "user"
-                      ? "ml-auto bg-primary text-primary-foreground"
-                      : "mr-auto border border-border/60 bg-secondary text-secondary-foreground"
-                  }`}
-                  key={message.id}
-                >
-                  <p>{message.content}</p>
-
-                  {isSucceededRender(message.render) ? (
-                    <a
-                      className="mt-3 inline-flex items-center gap-2 rounded-lg bg-background px-3 py-2 text-xs font-medium text-foreground ring-1 ring-black/5 transition-transform hover:scale-[1.02]"
-                      href={message.render.render.url}
-                      rel="noreferrer"
-                      target="_blank"
+              <div className="flex flex-col gap-3">
+                <div className="max-w-2xl">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">
+                    Your next creative pass
+                  </p>
+                  <h1 className="mt-3 max-w-2xl text-4xl font-semibold tracking-[-0.055em] text-balance sm:text-5xl">
+                    Make the product impossible to scroll past.
+                  </h1>
+                </div>
+                <div className="flex flex-col gap-3 pt-3">
+                  {messages.map((message) => (
+                    <article
+                      className={`max-w-[92%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm sm:max-w-[82%] ${
+                        message.role === "user"
+                          ? "ml-auto bg-primary text-primary-foreground"
+                          : "mr-auto border border-border/70 bg-secondary/80 text-secondary-foreground"
+                      }`}
+                      key={message.id}
                     >
-                      Open MP4 <ExternalLink className="size-3.5" />
-                    </a>
-                  ) : null}
-                </article>
-              ))
+                      <p>{message.content}</p>
+                    </article>
+                  ))}
+                </div>
+              </div>
             )}
 
             {isLoading ? (
-              <div className="mr-auto flex items-center gap-2 rounded-2xl border border-border/60 bg-secondary px-4 py-3 text-sm">
-                <Loader2 className="size-4 animate-spin text-primary" />
+              <div className="flex items-center gap-2 rounded-2xl border border-primary/25 bg-primary/10 px-4 py-3 text-sm text-primary">
+                <Loader2 className="size-4 animate-spin" />
                 {activeStage || "working"}
               </div>
             ) : null}
+
+            {isLoading || latestRender ? (
+              <Pipeline activeStage={activeStage} status={latestRender?.render.status} />
+            ) : null}
           </div>
 
-          <div className="border-t border-border/60 px-3 pb-3">
+          <div className="border-t border-border/70 bg-background/20 px-3 pb-3 sm:px-5">
             <AIPrompt
-              className="w-full py-0"
-              defaultModel="Kimi K2.6"
-              headerAction="Render"
-              headerText="OpenRouter, Pexels, GIPHY"
-              models={["Kimi K2.6"]}
+              className="w-full py-3"
+              defaultModel="DeepSeek"
+              headerAction="Create video"
+              headerText="DeepSeek plans the hook. Result builds the video."
+              models={["DeepSeek"]}
               onSubmit={(value) => submitPrompt(value)}
-              placeholder="Send a product URL or pitch"
+              placeholder="Paste a product URL or describe the audience"
             />
+            {messages.length === 0 ? (
+              <p className="px-2 pb-1 text-center text-[11px] text-muted-foreground">
+                Press Enter to create. Shift + Enter adds a line.
+              </p>
+            ) : null}
           </div>
         </section>
 
-        <aside className="grid min-h-[calc(100dvh-2rem)] gap-4 md:grid-rows-[minmax(380px,1fr)_auto]">
-          <PreviewPanel render={latestRender} />
+        <aside className="grid min-h-[calc(100dvh-2rem)] gap-4 md:grid-rows-[minmax(480px,1fr)_auto]">
+          <PreviewPanel
+            onCreateAnother={createAnother}
+            onRetry={() => submitPrompt(lastPrompt)}
+            render={latestRender}
+          />
           <RecipePanel render={latestRender} />
         </aside>
       </div>
@@ -343,67 +391,240 @@ export function UGCStudio() {
   );
 }
 
-function EmptyState({ onUseExample }: { onUseExample: () => void }) {
+function EmptyState({ onUseExample }: { onUseExample: (value: string) => void }) {
   return (
-    <Card className="mr-auto max-w-xl border-border/60 bg-secondary/60">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          Ready for a product brief
-        </CardTitle>
+    <div className="grid flex-1 items-center gap-8 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(180px,0.44fr)] lg:gap-10">
+      <motion.div
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-2xl"
+        initial={{ opacity: 0, y: 18 }}
+        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">
+          AI-powered UGC creation
+        </p>
+        <h1 className="mt-4 max-w-xl text-5xl font-semibold tracking-[-0.065em] text-balance sm:text-6xl lg:text-7xl">
+          Turn a product into a video people remember.
+        </h1>
+        <p className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">
+          Paste a link or a rough pitch. DeepSeek finds the angle, then Result assembles the hook, footage, reaction, and final MP4.
+        </p>
+        <div className="mt-7 flex flex-wrap gap-2">
+          {examplePrompts.map((prompt) => (
+            <button
+              className="rounded-full border border-border/80 bg-secondary/40 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/10 hover:text-foreground"
+              key={prompt}
+              onClick={() => onUseExample(prompt)}
+              type="button"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      </motion.div>
 
-        <CardDescription>
-          Send a URL and the app will pick assets, create the render, and return
-          the MP4 in chat.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent>
-        <Button onClick={onUseExample} size="sm" type="button">
-          Try CalAI
-        </Button>
-      </CardContent>
-    </Card>
+      <motion.div
+        animate={{ opacity: 1, y: 0, rotate: 2 }}
+        className="mx-auto w-full max-w-[220px]"
+        initial={{ opacity: 0, y: 24, rotate: 7 }}
+        transition={{ delay: 0.12, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <div className="relative aspect-[9/16] overflow-hidden rounded-3xl border border-primary/30 bg-[#182117] p-3 shadow-2xl shadow-primary/10">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_16%,rgba(155,229,100,0.55),transparent_28%),linear-gradient(155deg,#273b27,#121711_65%)]" />
+          <div className="relative flex h-full flex-col justify-between rounded-2xl border border-white/10 bg-black/10 p-4">
+            <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-white/60">
+              <span>Product story</span>
+              <span>9:16</span>
+            </div>
+            <div>
+              <p className="text-2xl font-black leading-[0.95] tracking-tight text-white [text-shadow:_0_2px_0_#111,_2px_0_0_#111,_0_-2px_0_#111,_-2px_0_0_#111]">
+                Make the scroll stop.
+              </p>
+              <div className="mt-4 h-1.5 w-16 rounded-full bg-primary" />
+            </div>
+            <div className="flex items-end justify-between">
+              <div className="space-y-1.5">
+                <div className="h-2 w-20 rounded-full bg-white/40" />
+                <div className="h-2 w-12 rounded-full bg-white/20" />
+              </div>
+              <div className="grid size-11 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30">
+                <ArrowUpRight className="size-5" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 }
 
-function PreviewPanel({ render }: { render: RenderPayload | null }) {
+function Pipeline({
+  activeStage,
+  status,
+}: {
+  activeStage: Stage | null;
+  status?: string;
+}) {
+  const reducedMotion = useReducedMotion();
+  const done = status === "succeeded";
+  const stopped = status === "failed" || status === "timeout";
+  const activeIndex = done
+    ? stages.length
+    : stopped
+      ? stages.length - 1
+      : Math.max(0, stages.indexOf(activeStage || "exporting MP4"));
+
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background/25 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">Build pipeline</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {done
+              ? "Your video is ready."
+              : stopped
+                ? "The render needs another pass."
+                : "A clear hook, then a clean export."}
+          </p>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          {done ? "Complete" : stopped ? "Stopped" : `${activeIndex + 1} / ${stages.length}`}
+        </span>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        {stages.map((stage, index) => {
+          const complete = done || index < activeIndex;
+          const active = !done && !stopped && index === activeIndex;
+
+          return (
+            <div className="flex items-center gap-2" key={stage}>
+              <div
+                className={`grid size-6 shrink-0 place-items-center rounded-full border text-[10px] ${
+                  complete
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : active
+                      ? "border-primary/60 bg-primary/10 text-primary"
+                      : "border-border bg-secondary/60 text-muted-foreground"
+                }`}
+              >
+                {complete ? (
+                  <Check className="size-3.5" />
+                ) : active && !reducedMotion ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  index + 1
+                )}
+              </div>
+              <span className={`text-xs ${active ? "text-foreground" : "text-muted-foreground"}`}>
+                {stage}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PreviewPanel({
+  onCreateAnother,
+  onRetry,
+  render,
+}: {
+  onCreateAnother: () => void;
+  onRetry: () => void;
+  render: RenderPayload | null;
+}) {
   const finalVideo = isSucceededRender(render) ? render.render.url : null;
   const previewVideo = render?.media.backgroundVideos[0]?.url;
   const status = render?.render.status;
+  const canRetry = status === "failed" || status === "timeout";
 
   return (
-    <Card className="min-h-[380px] border-border/60 bg-card/80">
-      <CardHeader>
-        <CardTitle>Render preview</CardTitle>
-        <CardDescription>
-          {render
-            ? `${status} via ${render.templateMode}`
-            : "The selected video and sticker appear here."}
-        </CardDescription>
+    <Card className="min-h-[480px] border-border/70 bg-card/80 shadow-xl shadow-black/15">
+      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="text-lg">Your video</CardTitle>
+          <CardDescription>
+            {render
+              ? finalVideo
+                ? "Ready to download and share."
+                : canRetry
+                  ? "The export stopped before completion."
+                  : "The creative is being assembled now."
+              : "A 9:16 preview appears after you send a brief."}
+          </CardDescription>
+        </div>
+        {render ? (
+          <span
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusPillClass(
+              status || ""
+            )}`}
+          >
+            {statusLabel(status || "waiting")}
+          </span>
+        ) : null}
       </CardHeader>
 
-      <CardContent>
-        <div className="relative mx-auto aspect-[9/16] max-h-[68dvh] w-full max-w-[360px] overflow-hidden rounded-2xl border border-border/60 bg-black">
-          {finalVideo ? (
-            <video
-              className="h-full w-full object-cover"
-              controls
-              src={finalVideo}
-            />
-          ) : previewVideo ? (
-            <video
-              autoPlay
-              className="h-full w-full object-cover opacity-80"
-              loop
-              muted
-              playsInline
-              src={previewVideo}
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center px-8 text-center text-sm text-muted-foreground">
-              Submit a product and the render will appear here.
-            </div>
-          )}
+      <CardContent className="flex flex-col gap-4">
+        <div className="relative mx-auto aspect-[9/16] max-h-[66dvh] w-full max-w-[360px] overflow-hidden rounded-3xl border border-border/80 bg-black/90 shadow-2xl shadow-black/30">
+          <AnimatePresence initial={false} mode="wait">
+            {finalVideo ? (
+              <motion.video
+                animate={{ opacity: 1 }}
+                autoPlay
+                className="absolute inset-0 h-full w-full object-cover"
+                controls
+                initial={{ opacity: 0 }}
+                key="final-video"
+                playsInline
+                src={finalVideo}
+              />
+            ) : previewVideo ? (
+              <motion.video
+                animate={{ opacity: 0.82 }}
+                autoPlay
+                className="absolute inset-0 h-full w-full object-cover"
+                initial={{ opacity: 0 }}
+                key="preview-video"
+                loop
+                muted
+                playsInline
+                src={previewVideo}
+              />
+            ) : (
+              <motion.div
+                animate={{ opacity: 1 }}
+                className="absolute inset-0 overflow-hidden bg-[radial-gradient(circle_at_50%_18%,rgba(155,229,100,0.32),transparent_31%),linear-gradient(160deg,#243322,#10140f_70%)]"
+                initial={{ opacity: 0 }}
+                key="placeholder"
+              >
+                <div className="flex h-full flex-col justify-between p-5">
+                  <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-white/60">
+                    <span>UGC preview</span>
+                    <Sparkles className="size-3.5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-3xl font-black leading-[0.92] tracking-tight text-white [text-shadow:_0_2px_0_#111,_2px_0_0_#111,_0_-2px_0_#111,_-2px_0_0_#111]">
+                      Your next hook starts here.
+                    </p>
+                    <p className="mt-3 max-w-[16ch] text-sm leading-relaxed text-white/65">
+                      Paste a product brief to generate the first cut.
+                    </p>
+                  </div>
+                  <div className="flex items-end justify-between">
+                    <div className="space-y-2">
+                      <div className="h-2 w-24 rounded-full bg-white/35" />
+                      <div className="h-2 w-14 rounded-full bg-white/20" />
+                    </div>
+                    <div className="grid size-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/25">
+                      <ArrowUpRight className="size-5" />
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {render?.media.sticker.url && !finalVideo ? (
             <img
@@ -420,46 +641,81 @@ function PreviewPanel({ render }: { render: RenderPayload | null }) {
               </p>
             </div>
           ) : null}
-
-          {render && !finalVideo && status ? (
-            <div
-              className={`absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-white backdrop-blur ${statusPillClass(
-                status
-              )}`}
-            >
-              {isPendingStatus(status) ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : null}
-              {status}
-            </div>
-          ) : null}
         </div>
+
+        {finalVideo ? (
+          <div className="grid gap-2 sm:grid-cols-3">
+            <a
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              download
+              href={finalVideo}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <Download className="size-4" />
+              Download MP4
+            </a>
+            <a
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-secondary/60 px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              href={finalVideo}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <ExternalLink className="size-4" />
+              Open MP4
+            </a>
+            <Button className="min-h-10 rounded-xl" onClick={onCreateAnother} variant="outline">
+              <Plus className="size-4" />
+              Create another
+            </Button>
+          </div>
+        ) : canRetry ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button className="rounded-xl" onClick={onRetry}>
+              <RefreshCw className="size-4" />
+              Try again
+            </Button>
+            <Button className="rounded-xl" onClick={onCreateAnother} variant="outline">
+              <Plus className="size-4" />
+              New brief
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
 }
 
 function statusPillClass(status: string): string {
-  if (status === "succeeded") return "bg-emerald-500/80";
-  if (status === "failed") return "bg-red-500/80";
-  return "bg-black/70";
+  if (status === "succeeded") return "bg-primary/15 text-primary";
+  if (status === "failed" || status === "timeout") return "bg-red-400/15 text-red-300";
+  return "bg-secondary text-muted-foreground";
 }
 
-function isPendingStatus(status: string): boolean {
-  return (
-    status === "planned" ||
-    status === "waiting" ||
-    status === "transcribing" ||
-    status === "rendering"
-  );
+function statusLabel(status: string): string {
+  if (status === "succeeded") return "Ready";
+  if (status === "failed") return "Failed";
+  if (status === "timeout") return "Needs retry";
+  if (status === "rendering") return "Rendering";
+  if (status === "waiting") return "Queued";
+  if (status === "transcribing") return "Composing";
+  return "Preparing";
+}
+
+function isSucceededRender(
+  render: RenderPayload | null | undefined
+): render is RenderPayload & {
+  render: RenderPayload["render"] & { url: string };
+} {
+  return render?.render.status === "succeeded" && Boolean(render.render.url);
 }
 
 function RecipePanel({ render }: { render: RenderPayload | null }) {
   return (
-    <Card className="border-border/60 bg-card/80">
+    <Card className="border-border/70 bg-card/80 shadow-lg shadow-black/10">
       <CardHeader>
-        <CardTitle>Recipe</CardTitle>
-        <CardDescription>Asset choices and source attribution.</CardDescription>
+        <CardTitle className="text-lg">Video recipe</CardTitle>
+        <CardDescription>Every ingredient behind the cut.</CardDescription>
       </CardHeader>
 
       <CardContent className="grid gap-2 text-sm">
@@ -471,10 +727,7 @@ function RecipePanel({ render }: { render: RenderPayload | null }) {
               value={render.plan.pexelsQuery}
               href={`https://pexels.com/search/${encodeURIComponent(render.plan.pexelsQuery)}`}
             />
-            <RecipeRow
-              label="Clips"
-              value={`${render.media.backgroundVideos.length}`}
-            />
+            <RecipeRow label="Clips" value={`${render.media.backgroundVideos.length}`} />
             <CardDivider className="my-1" />
             <RecipeRow
               label="GIPHY"
@@ -483,16 +736,17 @@ function RecipePanel({ render }: { render: RenderPayload | null }) {
             />
             <RecipeRow
               label="Audio"
-              value="/audio/funny-pop.mp3"
+              value="Funny Pop"
               href={render.media.audioUrl}
             />
-            <RecipeRow
-              label="AI"
-              value={render.usedAI ? "OpenRouter" : "fallback plan"}
-            />
+            <RecipeRow label="AI plan" value={render.usedAI ? "DeepSeek" : "Fallback plan"} />
           </>
         ) : (
-          <p className="text-muted-foreground">No render yet.</p>
+          <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3 md:grid-cols-1">
+            <p>DeepSeek finds the angle.</p>
+            <p>Pexels and GIPHY bring the texture.</p>
+            <p>Creatomate exports the final cut.</p>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -509,7 +763,7 @@ function RecipeRow({
   href?: string;
 }) {
   return (
-    <div className="grid grid-cols-[88px_1fr] items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2">
+    <div className="grid grid-cols-[88px_1fr] items-center gap-3 rounded-xl bg-secondary/40 px-3 py-2">
       <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
@@ -543,12 +797,6 @@ function stripReply(
     usedAI: payload.usedAI,
     templateMode: payload.templateMode,
   };
-}
-
-function isSucceededRender(
-  render: RenderPayload | null | undefined
-): render is RenderPayload & { render: RenderPayload["render"] & { url: string } } {
-  return render?.render.status === "succeeded" && Boolean(render.render.url);
 }
 
 function normalizeRenderStatus(

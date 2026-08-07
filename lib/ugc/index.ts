@@ -4,7 +4,7 @@ import {
   getCreatomateRender,
   resolveAudioUrl,
 } from "./creatomate";
-import { buildConversationalReply, buildOpenRouterPlan } from "./openrouter";
+import { buildConversationalReply, buildDeepSeekPlan } from "./deepseek";
 import { fetchSiteContext } from "./site";
 import {
   buildFallbackPlan,
@@ -73,9 +73,9 @@ export async function handleChatRequest(
   const site = url ? await fetchSiteContext(url) : null;
 
   const fallback = buildFallbackPlan(clean, site);
-  const aiResult = await buildOpenRouterPlan(clean, site, history).catch(
+  const aiResult = await buildDeepSeekPlan(clean, site, history).catch(
     (error) => {
-      console.error("OpenRouter plan failed, using fallback plan:", error);
+      console.error("DeepSeek plan failed, using fallback plan:", error);
       return null;
     }
   );

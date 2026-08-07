@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Result UGC Studio — a Next.js app that turns a product URL/pitch into a short UGC MP4 (OpenRouter plans the script, Pexels + GIPHY supply media, Creatomate renders).
+Result UGC Studio - a Next.js app that turns a product URL/pitch into a short UGC MP4 (DeepSeek plans the script, Pexels + GIPHY supply media, Creatomate renders).
 
 ## Commands
 
@@ -13,8 +13,8 @@ Result UGC Studio — a Next.js app that turns a product URL/pitch into a short 
 - **All business logic lives under `lib/ugc/`**. The two API routes are thin wrappers:
   - `app/api/chat/route.ts` → `handleChatRequest()` (the whole pipeline).
   - `app/api/render/[id]/route.ts` → `getCreatomateRender()` (status polling).
-- Message routing in `handleChatRequest`: `looksLikeProductBrief()` (keyword/URL gate) decides render vs. chat. Briefs run the full pipeline; anything else returns `type: "chat"` with a conversational OpenRouter reply (`buildConversationalReply`, which also falls back to a canned line when `OPENROUTER_API_KEY` is absent). A brief like "tell me a joke about my app" can trip the keyword and render — upgrade path is LLM intent classification.
-- Pipeline: validate message → fetch site HTML → OpenRouter plan → Pexels video + GIPHY sticker → Creatomate render → client polls `/api/render/{id}` until `succeeded`/`failed`.
+- Message routing in `handleChatRequest`: `looksLikeProductBrief()` (keyword/URL gate) decides render vs. chat. Briefs run the full pipeline; anything else returns `type: "chat"` with a conversational DeepSeek reply (`buildConversationalReply`, which also falls back to a canned line when `DEEPSEEK_API_KEY` is absent). A brief like "tell me a joke about my app" can trip the keyword and render - upgrade path is LLM intent classification.
+- Pipeline: validate message → fetch site HTML → DeepSeek plan → Pexels video + GIPHY sticker → Creatomate render → client polls `/api/render/{id}` until `succeeded`/`failed`.
 - Frontend is one client component, `components/ugc-studio.tsx`, rendered by `app/page.tsx`. It does the status polling loop (`pollRender`, up to 36 attempts ~3 min).
 - Both API routes pin `export const runtime = "nodejs"` — required because `lib/ugc/net.ts` uses `node:dns`/`node:net`. Do not switch to the edge runtime.
 - Route handler uses Next 16 async params: `{ params }: { params: Promise<{ id: string }> }` then `await params`.
@@ -23,7 +23,7 @@ Result UGC Studio — a Next.js app that turns a product URL/pitch into a short 
 
 - Secrets load from `.env.local` (gitignored, already populated locally with live keys — never print or commit them). `.env.example` lists the keys.
 - `PEXELS_API_KEY`, `GIPHY_API_KEY`, `CREATOMATE_API_KEY` are **required** — `assertServerConfig()` throws `Missing <KEY>` if absent.
-- `OPENROUTER_API_KEY` is **optional**: without it (or on any AI error) the code silently falls back to `buildFallbackPlan()`. `OPENROUTER_MODEL` defaults to `moonshotai/kimi-k2.6`.
+- `DEEPSEEK_API_KEY` is **optional**: without it (or on any AI error) the code silently falls back to `buildFallbackPlan()`. `DEEPSEEK_MODEL` defaults to `deepseek-chat`.
 - `CREATOMATE_TEMPLATE_ID` is optional. If set AND the template exposes media-ready layer names (`templateLooksMediaReady` checks for background/video + sticker/gif + audio layers), it uses template mode; otherwise it builds an inline renderscript (`buildRenderScriptBody`).
 - Audio asset is `public/audio/funny-pop.mp3`. `resolveAudioUrl()` (`lib/ugc/creatomate.ts`) resolves its public URL: `PUBLIC_MEDIA_BASE_URL` env → else a publicly-reachable request origin (`isPubliclyReachableOrigin`, literal-hostname check) → else the hardcoded `FALLBACK_AUDIO_URL` (`https://resulttest-henna.vercel.app/audio/funny-pop.mp3`). Because of that final fallback, `audioUrl` is effectively never `""` — both render bodies include audio. The omit-on-empty branch is defensive only. Set `PUBLIC_MEDIA_BASE_URL` to your deploy origin so dev renders don't depend on the prod fallback URL.
 

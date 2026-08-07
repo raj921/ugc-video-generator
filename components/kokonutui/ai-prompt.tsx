@@ -10,7 +10,7 @@
  * @github: https://github.com/kokonut-labs/kokonutui
  */
 
-import { ArrowRight, Bot, Check, ChevronDown, Paperclip } from "lucide-react";
+import { ArrowRight, Bot, Check, ChevronDown } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -229,18 +229,6 @@ export default function AI_Prompt({
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <div className="mx-0.5 h-4 w-px bg-black/10 dark:bg-white/10" />
-                  <label
-                    aria-label="Attach file"
-                    className={cn(
-                      "cursor-pointer rounded-lg bg-black/5 p-2 dark:bg-white/5",
-                      "hover:bg-black/10 focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-offset-0 dark:hover:bg-white/10",
-                      "text-black/40 hover:text-black dark:text-white/40 dark:hover:text-white"
-                    )}
-                  >
-                    <input className="hidden" type="file" />
-                    <Paperclip className="h-4 w-4 transition-colors" />
-                  </label>
                 </div>
                 <button
                   aria-label="Send message"

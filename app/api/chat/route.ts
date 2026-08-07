@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { handleChatRequest, type ChatMessage } from "@/lib/ugc";
 
 export const runtime = "nodejs";
-// The whole pipeline (site fetch + OpenRouter plan + Pexels/GIPHY + create render)
+// The whole pipeline (site fetch + DeepSeek plan + Pexels/GIPHY + create render)
 // runs synchronously here and can take ~20-30s. Vercel's default function limit is
 // 10s, which would time out, so raise it to the Hobby maximum.
 export const maxDuration = 60;

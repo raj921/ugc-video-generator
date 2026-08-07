@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Result UGC Studio",
-  description: "Chat with an API-first UGC video generator.",
+  title: "Result UGC Studio | Product to UGC video",
+  description:
+    "Turn a product link or pitch into a scroll-stopping UGC video with AI, footage, reaction, and sound.",
 };
 
 export default function RootLayout({

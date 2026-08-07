@@ -71,7 +71,7 @@ export type SiteContext = {
   error?: string;
 };
 
-export type OpenRouterChatMessage = {
+export type AIChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
