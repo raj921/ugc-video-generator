@@ -1,21 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Result UGC Studio | Product to UGC video",
+  title: "Result — AI UGC Studio | Product to Scroll-Stopping Video",
   description:
-    "Turn a product link or pitch into a scroll-stopping UGC video with AI, footage, reaction, and sound.",
+    "Paste a product link or pitch. DeepSeek directs, Pexels + GIPHY supply the B-roll, Creatomate exports a scroll-stopping 9:16 UGC cut — in under a minute.",
 };
 
 export default function RootLayout({
@@ -24,7 +15,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} dark`}>
+    <html
+      lang="en"
+      className={`${GeistSans.variable} ${GeistMono.variable} dark`}
+    >
       <body className="font-sans antialiased">{children}</body>
     </html>
   );
